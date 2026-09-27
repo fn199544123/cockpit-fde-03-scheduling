@@ -1,0 +1,171 @@
+{% extends 'board/base.html' %}
+{% block title %}智能排产 · 生产排产甘特看板{% endblock %}
+{% block nav_schedule %}active{% endblock %}
+
+{% block content %}
+<style>
+    .sched-head { display:flex; align-items:center; gap:16px; margin-bottom:22px; flex-wrap:wrap; }
+    .sched-head h2 { font-size:20px; color:#9ecbff; }
+    .sched-head .sub { color:#61728a; font-size:13px; }
+    .btn-lg { padding:11px 26px; font-size:15px; font-weight:600; }
+    .risk-chip { display:inline-flex; align-items:center; gap:10px; padding:9px 16px; border-radius:10px;
+        font-size:13px; border:1px solid #1f3a52; background:#111a2b; color:#c9d6e5; }
+    .risk-chip b { color:#4fc3f7; }
+    .risk-chip.lv-overdue { border-color:#7a2233; background:#2a0e16; color:#ff8a9c; }
+    .risk-chip.lv-abnormal { border-color:#7a5a22; background:#241c0e; color:#f0c368; }
+    .risk-chip.lv-warning { border-color:#7a5222; background:#22190e; color:#f0b072; }
+    .risk-chip.lv-ok { border-color:#1f7a44; background:#0e2418; color:#7ee2a8; }
+
+    .cols { display:grid; grid-template-columns: 340px 1fr; gap:22px; align-items:start; }
+    @media (max-width:1100px){ .cols { grid-template-columns:1fr; } }
+
+    .panel { background:#111a2b; border:1px solid #1f3a52; border-radius:12px; padding:18px 20px; }
+    .panel h3 { font-size:15px; color:#9ecbff; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+    .panel h3 .pill { margin-left:auto; background:#143050; color:#4fc3f7; font-size:12px;
+        padding:2px 10px; border-radius:20px; border:1px solid #1f5a86; }
+
+    /* 队列 */
+    .qitem { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #16233a; }
+    .qitem:last-child { border-bottom:none; }
+    .qitem .no { color:#4fc3f7; font-weight:600; font-size:13px; }
+    .qitem .pd { color:#c9d6e5; font-size:13px; }
+    .qitem .meta { margin-left:auto; text-align:right; font-size:12px; color:#7a8ba0; white-space:nowrap; }
+    .prio { display:inline-block; padding:1px 8px; border-radius:5px; font-size:11px; margin-left:6px; }
+    .prio.p4 { background:#3a1420; color:#ff8a9c; } .prio.p3 { background:#3a2a10; color:#f0b862; }
+    .prio.p2 { background:#0e2440; color:#7fb2ff; } .prio.p1 { background:#1a2430; color:#8ea0b5; }
+    .q-empty { color:#556; padding:24px 0; text-align:center; font-size:14px; }
+
+    /* 负载条 */
+    .loadrow { margin-bottom:14px; }
+    .loadrow .lbl { display:flex; font-size:13px; margin-bottom:5px; }
+    .loadrow .lbl .nm { color:#c9d6e5; } .loadrow .lbl .val { margin-left:auto; color:#7a8ba0; }
+    .bar { height:10px; background:#0e1728; border-radius:6px; overflow:hidden; border:1px solid #1f3a52; }
+    .bar > i { display:block; height:100%; background:linear-gradient(90deg,#1565c0,#4fc3f7); }
+
+    /* 甘特 */
+    .gantt { position:relative; overflow-x:auto; }
+    .gantt-inner { min-width:720px; }
+    .axis { position:relative; height:22px; margin-left:96px; margin-bottom:6px;
+        border-bottom:1px solid #1f3a52; }
+    .axis .tk { position:absolute; top:0; font-size:11px; color:#61728a; transform:translateX(-50%);
+        border-left:1px dashed #1f3a5266; padding-left:0; height:26px; }
+    .axis .tk span { position:absolute; top:0; left:2px; white-space:nowrap; }
+    .lane { display:flex; align-items:center; height:40px; }
+    .lane .lname { width:96px; flex:0 0 96px; font-size:13px; color:#9db4cc; padding-right:8px; }
+    .lane .lname b { color:#4fc3f7; }
+    .track { position:relative; flex:1; height:30px; background:#0e1728;
+        border-radius:6px; border:1px solid #16233a; }
+    .nowline { position:absolute; top:-24px; bottom:-6px; width:2px; background:#ff8a9c88; z-index:5; }
+    .nowline span { position:absolute; top:-16px; left:3px; font-size:10px; color:#ff8a9c; white-space:nowrap; }
+    .barp { position:absolute; top:3px; height:24px; border-radius:5px; overflow:hidden;
+        display:flex; align-items:center; padding:0 7px; font-size:11px; color:#fff; white-space:nowrap;
+        box-shadow:0 1px 4px #0006; cursor:default; }
+    .barp .prog { position:absolute; left:0; top:0; bottom:0; background:#ffffff28; }
+    .barp .txt { position:relative; z-index:2; text-overflow:ellipsis; overflow:hidden; }
+    .barp.late { outline:1.5px solid #ff8a9c; }
+    .barp .warn { position:relative; z-index:2; margin-left:5px; }
+    .legend { display:flex; gap:16px; margin-top:14px; font-size:12px; color:#7a8ba0; flex-wrap:wrap; }
+    .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+    .g-empty { color:#556; padding:50px; text-align:center; font-size:15px; }
+</style>
+
+<div class="sched-head">
+    <h2>🗓 智能排产工作台</h2>
+    <span class="sub">订单进队列 · 按产线负载与交期一键自动排产 · 生成甘特计划</span>
+    <div class="spacer"></div>
+    <a href="{% url 'board:alerts' %}" class="risk-chip lv-{{ risk.banner_level }}" title="排产结果对照交期,点击查看交期风险预警">
+        {% if risk_counts.danger %}⛔ {{ risk_counts.danger }} 超期{% endif %}
+        {% if risk_counts.warning %}⚠ {{ risk_counts.warning }} 紧张{% endif %}
+        {% if risk_counts.abnormal %}❗ {{ risk_counts.abnormal }} 异常{% endif %}
+        {% if not risk_counts.total %}✅ 交期可控{% endif %}
+        <b>交期预警 →</b>
+    </a>
+    <form method="post" style="margin:0;">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary btn-lg"
+            {% if not queue_count %}title="队列为空,先到基础台账新增待排产订单"{% endif %}>
+            ⚡ 一键自动排产{% if queue_count %}（{{ queue_count }} 张待排）{% endif %}
+        </button>
+    </form>
+</div>
+
+<div class="cols">
+    <div style="display:flex; flex-direction:column; gap:22px;">
+        <!-- 排产队列 -->
+        <div class="panel">
+            <h3>📥 排产队列 <span class="pill">{{ queue_count }} 待排</span></h3>
+            {% if queue %}
+                {% for o in queue %}
+                <div class="qitem">
+                    <span class="no">{{ o.order_no }}</span>
+                    <span class="pd">{{ o.product }}</span>
+                    <span class="prio p{{ o.priority }}">{{ o.get_priority_display }}</span>
+                    <span class="meta">{{ o.quantity }} 件 · {{ o.work_hours }}h<br>交期 {{ o.due_date|date:"m-d" }}</span>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="q-empty">队列已清空 —— 全部订单已排产 🎉<br>
+                    <span style="font-size:12px;">新订单可到「基础台账 → 订单」新增(状态=待排产)</span>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- 产线负载 -->
+        <div class="panel">
+            <h3>📊 产线负载 <span class="pill">{{ load|length }} 线</span></h3>
+            {% for x in load %}
+            <div class="loadrow">
+                <div class="lbl">
+                    <span class="nm">{{ x.line.name }} <span style="color:#61728a;">({{ x.line.code }})</span></span>
+                    <span class="val">{{ x.plan_count }} 单 · {{ x.hours }}h · 空于 {{ x.free_at|date:"m-d H:i" }}</span>
+                </div>
+                <div class="bar"><i style="width:{% widthratio x.hours max_hours 100 %}%;"></i></div>
+            </div>
+            {% empty %}
+            <div class="q-empty">暂无启用产线</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- 甘特图 -->
+    <div class="panel">
+        <h3>📅 排产甘特计划 <span class="pill">{{ plan_count }} 条计划</span></h3>
+        {% if lanes %}
+        <div class="gantt"><div class="gantt-inner">
+            <div class="axis">
+                {% for t in axis %}<div class="tk" style="left:{{ t.left }}%;"><span>{{ t.label }}</span></div>{% endfor %}
+            </div>
+            {% for lane in lanes %}
+            <div class="lane">
+                <div class="lname"><b>{{ lane.line.code }}</b> {{ lane.line.name }}</div>
+                <div class="track">
+                    {% if forloop.first and window.now_left %}
+                        <div class="nowline" style="left:{{ window.now_left }}%;"><span>现在</span></div>
+                    {% endif %}
+                    {% for b in lane.bars %}
+                    <div class="barp {% if b.late %}late{% endif %}"
+                         style="left:{{ b.left }}%; width:{{ b.width }}%; background:{{ b.color }};"
+                         title="{{ b.order_no }} {{ b.product }} · {{ b.priority }} · {{ b.hours }}h&#10;{{ b.start|date:'m-d H:i' }} → {{ b.end|date:'m-d H:i' }} · 交期 {{ b.due|date:'m-d' }}{% if b.late %} · 预计超期{% endif %}">
+                        {% if b.progress %}<span class="prog" style="width:{{ b.progress }}%;"></span>{% endif %}
+                        <span class="txt">{{ b.order_no }}</span>
+                        {% if b.late %}<span class="warn">⚠</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div></div>
+        <div class="legend">
+            <span><i style="background:#a52233;"></i>紧急</span>
+            <span><i style="background:#b26a00;"></i>高</span>
+            <span><i style="background:#1565c0;"></i>普通</span>
+            <span><i style="background:#4a6070;"></i>低</span>
+            <span><i style="background:transparent;outline:1.5px solid #ff8a9c;"></i>⚠ 预计超期</span>
+            <span style="color:#556;">条内浅色 = 完成进度 · 红线 = 现在</span>
+        </div>
+        {% else %}
+        <div class="g-empty">暂无排产计划 —— 点右上「⚡ 一键自动排产」把队列里的订单铺到甘特图上。</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

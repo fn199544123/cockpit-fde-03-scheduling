@@ -1,0 +1,179 @@
+{% extends 'board/base.html' %}
+{% block title %}产线负载率与产能利用分析 · 生产排产甘特看板{% endblock %}
+{% block nav_utilization %}active{% endblock %}
+
+{% block content %}
+<style>
+    .u-head { display:flex; align-items:center; gap:16px; margin-bottom:22px; flex-wrap:wrap; }
+    .u-head h2 { font-size:20px; color:#9ecbff; }
+    .u-head .sub { color:#61728a; font-size:13px; }
+    .win-switch { display:flex; gap:6px; }
+    .win-switch a { padding:6px 14px; border-radius:8px; font-size:13px; color:#9db4cc;
+        border:1px solid #2a3f57; background:#0e1626; transition:.15s; }
+    .win-switch a:hover { background:#16233a; color:#e6edf3; }
+    .win-switch a.on { background:#143050; color:#4fc3f7; border-color:#1f5a86; }
+
+    .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:16px; margin-bottom:26px; }
+    .kpi { background:#111a2b; border:1px solid #1f3a52; border-radius:12px; padding:20px 22px; }
+    .kpi .n { font-size:32px; font-weight:800; line-height:1; }
+    .kpi .n small { font-size:16px; font-weight:600; color:#7a8ba0; }
+    .kpi .l { font-size:13px; color:#7a8ba0; margin-top:10px; }
+    .kpi .x { font-size:12px; color:#61728a; margin-top:5px; }
+    .kpi.load .n { color:#4fc3f7; }
+    .kpi.cap .n { color:#5fd39a; }
+    .kpi.over { border-color:#7a2233; } .kpi.over .n { color:#ff5a6a; }
+    .kpi.idle .n { color:#7c8cff; }
+    .kpi.bottleneck .n { font-size:22px; color:#f0b072; }
+
+    .band-legend { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:18px; font-size:12px; color:#8ea0b5; }
+    .band-legend span { display:inline-flex; align-items:center; gap:6px; }
+    .band-legend i { width:12px; height:12px; border-radius:3px; display:inline-block; }
+
+    table.util { width:100%; border-collapse:collapse; background:#111a2b;
+        border:1px solid #1f3a52; border-radius:10px; overflow:hidden; }
+    table.util thead th { text-align:left; padding:12px 16px; font-size:12px; letter-spacing:1px;
+        color:#7a8ba0; background:#0e1728; border-bottom:1px solid #1f3a52; white-space:nowrap; }
+    table.util tbody td { padding:14px 16px; font-size:14px; border-bottom:1px solid #16233a; vertical-align:middle; }
+    table.util tbody tr:last-child td { border-bottom:none; }
+    table.util tbody tr:hover { background:#14203450; }
+    .ln-name { color:#e6edf3; font-weight:600; }
+    .ln-code { color:#61728a; font-size:12px; }
+    .muted { color:#7a8ba0; }
+
+    .bar { position:relative; height:20px; border-radius:5px; background:#0e1626;
+        border:1px solid #1f3a52; overflow:hidden; min-width:160px; }
+    .bar .fill { position:absolute; left:0; top:0; bottom:0; border-radius:4px 0 0 4px; }
+    .bar .over { position:absolute; top:0; bottom:0; background:repeating-linear-gradient(45deg,#ff5a6a,#ff5a6a 5px,#b8323f 5px,#b8323f 10px); }
+    .bar .mark100 { position:absolute; top:-2px; bottom:-2px; width:1px; background:#7a8ba0; opacity:.5; }
+    .bar-wrap { display:flex; align-items:center; gap:10px; }
+    .bar-pct { min-width:52px; font-weight:700; font-variant-numeric:tabular-nums; }
+    .tag { display:inline-block; padding:2px 9px; border-radius:20px; font-size:12px; font-weight:600; }
+    .sub2 { font-size:12px; color:#61728a; margin-top:4px; }
+
+    .note { color:#61728a; font-size:12px; margin-top:16px; line-height:1.7; }
+    .empty { color:#556; padding:40px; text-align:center; font-size:15px;
+        background:#111a2b; border:1px solid #1f3a52; border-radius:12px; }
+</style>
+
+<div class="u-head">
+    <h2>📊 产线负载率与产能利用分析</h2>
+    <span class="sub">未来 {{ days }} 天排产负载 · 近 {{ days }} 天报工实绩 · 共 {{ report.lines|length }} 条启用产线</span>
+    <div class="spacer"></div>
+    <div class="win-switch">
+        {% for d in day_options %}
+        <a href="?days={{ d }}" class="{% if d == days %}on{% endif %}">{{ d }} 天</a>
+        {% endfor %}
+    </div>
+</div>
+
+{% if report.lines %}
+<div class="kpis">
+    <div class="kpi load">
+        <div class="n">{{ report.overall_load }}<small>%</small></div>
+        <div class="l">全厂综合负载率</div>
+        <div class="x">占用 {{ report.total_load_hours }}h / 可用 {{ report.total_avail_hours }}h</div>
+    </div>
+    <div class="kpi cap">
+        <div class="n">{% if report.avg_cap_util != None %}{{ report.avg_cap_util }}<small>%</small>{% else %}—{% endif %}</div>
+        <div class="l">平均产能利用率</div>
+        <div class="x">实际日均产出 / 额定日产能</div>
+    </div>
+    <div class="kpi over">
+        <div class="n">{{ report.overloaded|length }}</div>
+        <div class="l">⛔ 超载产线</div>
+        <div class="x">排产已超可用工时</div>
+    </div>
+    <div class="kpi idle">
+        <div class="n">{{ report.idle|length }}</div>
+        <div class="l">🟦 空闲产线</div>
+        <div class="x">负载率 &lt; 40%,可承接</div>
+    </div>
+    <div class="kpi bottleneck">
+        <div class="n">{% if report.bottleneck %}{{ report.bottleneck.line.name }}<br><small style="font-size:13px;color:#f0b072;">{{ report.bottleneck.load_rate }}%</small>{% else %}—{% endif %}</div>
+        <div class="l">🔥 瓶颈产线</div>
+        <div class="x">负载率最高</div>
+    </div>
+</div>
+
+<div class="band-legend">
+    <b style="color:#8ea0b5;">负载分档:</b>
+    {% for m in legend %}
+    <span><i style="background:{{ m.color }};"></i>{{ m.label }} <span class="muted">×{{ m.count }}</span></span>
+    {% endfor %}
+</div>
+
+<table class="util">
+    <thead><tr>
+        <th style="width:150px;">产线</th>
+        <th style="width:300px;">排产负载率(未来 {{ days }} 天)</th>
+        <th style="width:130px;">占用 / 可用</th>
+        <th style="width:280px;">产能利用率(近 {{ days }} 天实绩)</th>
+        <th style="width:120px;">日均产出 / 产能</th>
+        <th style="width:90px;">良品率</th>
+    </tr></thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            <td>
+                <div class="ln-name">{{ r.u.line.name }}</div>
+                <div class="ln-code">{{ r.u.line.code }}{% if r.u.line.foreman %} · {{ r.u.line.foreman }}{% endif %}</div>
+            </td>
+            <td>
+                <div class="bar-wrap">
+                    <div class="bar" title="负载率 {{ r.u.load_rate }}%">
+                        <div class="fill" style="width:{{ r.load_fill }}%; background:{{ r.load_meta.color }};"></div>
+                        {% if r.over_fill %}<div class="over" style="left:{{ r.load_fill }}%; width:{{ r.over_fill }}%;"></div>{% endif %}
+                        <div class="mark100" style="left:100%;"></div>
+                    </div>
+                    <span class="bar-pct" style="color:{{ r.load_meta.color }};">{{ r.u.load_rate }}%</span>
+                </div>
+                <div class="sub2">
+                    <span class="tag" style="background:{{ r.load_meta.color }}22;color:{{ r.load_meta.color }};">{{ r.load_meta.label }}</span>
+                    {{ r.load_meta.tip }}
+                </div>
+            </td>
+            <td>
+                <span style="color:#e6edf3;">{{ r.u.load_hours }}h</span>
+                <span class="muted"> / {{ r.u.avail_hours }}h</span>
+                <div class="sub2">{{ r.u.plan_count }} 项计划 · 余 {{ r.u.free_hours }}h</div>
+            </td>
+            <td>
+                {% if r.u.cap_util != None %}
+                <div class="bar-wrap">
+                    <div class="bar" title="产能利用率 {{ r.u.cap_util }}%">
+                        <div class="fill" style="width:{{ r.cap_fill }}%; background:{{ r.cap_meta.color }};"></div>
+                        <div class="mark100" style="left:83.3%;"></div>
+                    </div>
+                    <span class="bar-pct" style="color:{{ r.cap_meta.color }};">{{ r.u.cap_util }}%</span>
+                </div>
+                <div class="sub2"><span class="tag" style="background:{{ r.cap_meta.color }}22;color:{{ r.cap_meta.color }};">{{ r.cap_meta.label }}</span></div>
+                {% else %}
+                <span class="muted">近 {{ days }} 天无报工数据</span>
+                {% endif %}
+            </td>
+            <td>
+                <span style="color:#e6edf3;">{{ r.u.avg_daily_out }}</span>
+                <span class="muted"> / {{ r.u.capacity }} 件</span>
+                <div class="sub2">窗口累计 {{ r.u.out_total }} 件</div>
+            </td>
+            <td>
+                {% if r.u.yield_rate != None %}
+                <b style="color:{% if r.u.yield_rate >= 98 %}#5fd39a{% elif r.u.yield_rate >= 95 %}#f0b072{% else %}#ff8a9c{% endif %};">{{ r.u.yield_rate }}%</b>
+                {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="note">
+    <b>算法说明</b> —— <b>负载率</b> = 未来 {{ days }} 天内已排/在产计划落在窗口内的占用工时 ÷ 可排产能工时（{{ days }} 天 × 每日 {{ report.daily_hours }}h）；
+    &gt;100% 表示排产已超出该线可用工时（斜纹段），交期风险高。
+    <b>产能利用率</b> = 近 {{ days }} 天真实报工的实际日均产出 ÷ 该线额定日产能；灰竖线为 85% 饱和线。
+    两者一高一低时提示「排得满但产不出」或「有产能没订单」，可据此在智能排产中重新分配。
+    分析窗口可切换（{{ day_options|join:" / " }} 天），阈值集中在 <code>board/analytics.py</code>。
+</div>
+{% else %}
+<div class="empty">暂无启用的产线 —— 请先到<a href="{% url 'board:ledger_list' 'line' %}" style="color:#4fc3f7;"> 基础台账 </a>新增/启用产线。</div>
+{% endif %}
+{% endblock %}

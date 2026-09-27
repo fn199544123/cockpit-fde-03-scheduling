@@ -1,0 +1,21 @@
+{% extends 'board/base.html' %}
+{% block title %}删除{{ label }} · 生产排产甘特看板{% endblock %}
+{% block nav_ledger %}active{% endblock %}
+
+{% block content %}
+<div class="crumbs">
+    <a href="{% url 'board:ledger_home' %}">基础台账</a> /
+    <a href="{% url 'board:ledger_list' entity %}">{{ label }}</a> / 删除
+</div>
+
+<div class="confirm-box">
+    <h3>确认删除{{ label }}?</h3>
+    <p>即将删除 {{ icon }} <strong>{{ obj }}</strong>。此操作不可撤销。<br>
+       若该{{ label }}已被排产计划等数据引用,删除将被拒绝。</p>
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">确认删除</button>
+        <a href="{% url 'board:ledger_list' entity %}" class="btn btn-ghost">取消</a>
+    </form>
+</div>
+{% endblock %}

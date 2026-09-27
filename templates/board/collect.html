@@ -1,0 +1,131 @@
+{% extends 'board/base.html' %}
+{% block title %}数据采集 · 快速报工 · 生产排产甘特看板{% endblock %}
+{% block nav_collect %}active{% endblock %}
+
+{% block content %}
+<style>
+    .collect-wrap { display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 24px; align-items: start; }
+    @media (max-width: 900px) { .collect-wrap { grid-template-columns: 1fr; } }
+
+    .stat-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
+    .stat {
+        background: #111a2b; border: 1px solid #1f3a52; border-radius: 10px;
+        padding: 14px 20px; min-width: 120px; flex: 1;
+    }
+    .stat .k { color: #61728a; font-size: 12px; letter-spacing: 1px; }
+    .stat .v { font-size: 26px; font-weight: 700; margin-top: 4px; color: #4fc3f7; }
+    .stat.ok .v { color: #7ee2a8; }
+    .stat.ng .v { color: #ff8a9c; }
+
+    /* 数量步进器 */
+    .stepper { display: flex; align-items: stretch; gap: 0; max-width: 240px; }
+    .stepper button {
+        width: 46px; font-size: 22px; line-height: 1; cursor: pointer; color: #e6edf3;
+        background: #143050; border: 1px solid #1f3a52; user-select: none;
+    }
+    .stepper button:hover { background: #1a3f6a; }
+    .stepper button.minus { border-radius: 8px 0 0 8px; }
+    .stepper button.plus { border-radius: 0 8px 8px 0; }
+    .stepper input { text-align: center; border-radius: 0; border-left: none; border-right: none;
+        font-size: 20px; font-weight: 700; -moz-appearance: textfield; }
+    .stepper input::-webkit-outer-spin-button,
+    .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+    .recent-card { background: #111a2b; border: 1px solid #1f3a52; border-radius: 12px; overflow: hidden; }
+    .recent-card .hd { padding: 14px 18px; border-bottom: 1px solid #1f3a52; display: flex; align-items: center; }
+    .recent-card .hd h3 { font-size: 15px; color: #9ecbff; }
+    .recent-card .hd a { margin-left: auto; font-size: 13px; color: #4fc3f7; }
+    .recent-card table { border: none; border-radius: 0; }
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; }
+    .pill.ok { background: #10331f; color: #7ee2a8; }
+    .pill.ng { background: #3a1420; color: #ff8a9c; }
+</style>
+
+<div class="page-head">
+    <h2>📝 数据采集 · 快速报工</h2>
+    <span class="count">选产线 → 录产出 → 提交即落库,可连续打卡上报</span>
+</div>
+
+<div class="stat-row">
+    <div class="stat ok"><div class="k">今日合格</div><div class="v">{{ stats.today_ok }}</div></div>
+    <div class="stat ng"><div class="k">今日不良</div><div class="v">{{ stats.today_ng }}</div></div>
+    <div class="stat"><div class="k">今日良品率</div><div class="v">{% if stats.today_yield is not None %}{{ stats.today_yield }}%{% else %}—{% endif %}</div></div>
+    <div class="stat"><div class="k">今日报工条数</div><div class="v">{{ stats.today_count }}</div></div>
+    <div class="stat"><div class="k">累计报工</div><div class="v">{{ stats.total }}</div></div>
+</div>
+
+{% if not has_lines %}
+<div class="msg warning">还没有产线主数据,请先到 <a href="{% url 'board:ledger_list' 'line' %}">基础台账 · 产线</a> 新增产线,再来采集。</div>
+{% endif %}
+
+<div class="collect-wrap">
+    <form class="model-form" method="post" novalidate style="max-width:none;">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors|striptags }}</div>{% endif %}
+        {% for field in form %}
+        <div class="field">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {% if field.name == 'qty_ok' or field.name == 'qty_ng' %}
+            <div class="stepper">
+                <button type="button" class="minus" data-target="{{ field.id_for_label }}">−</button>
+                {{ field }}
+                <button type="button" class="plus" data-target="{{ field.id_for_label }}">+</button>
+            </div>
+            {% else %}
+            {{ field }}
+            {% endif %}
+            {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}
+            {% if field.errors %}<div class="errs">{{ field.errors|striptags }}</div>{% endif %}
+        </div>
+        {% endfor %}
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">提交采集</button>
+            <a href="{% url 'board:collect' %}" class="btn btn-ghost">清空重录</a>
+        </div>
+    </form>
+
+    <div class="recent-card">
+        <div class="hd">
+            <h3>最近报工</h3>
+            <a href="{% url 'board:ledger_list' 'report' %}">查看全部 →</a>
+        </div>
+        {% if recent %}
+        <table>
+            <thead>
+                <tr><th>时间</th><th>产线 / 工序</th><th>班次</th><th>产出</th><th>报工人</th></tr>
+            </thead>
+            <tbody>
+                {% for r in recent %}
+                <tr>
+                    <td>{{ r.logged_at|date:"m-d H:i" }}</td>
+                    <td>{{ r.line.name }}{% if r.process %} · {{ r.process.name }}{% endif %}{% if r.order %}<br><small style="color:#61728a">{{ r.order.order_no }}</small>{% endif %}</td>
+                    <td>{{ r.get_shift_display }}</td>
+                    <td><span class="pill ok">合 {{ r.qty_ok }}</span>{% if r.qty_ng %} <span class="pill ng">次 {{ r.qty_ng }}</span>{% endif %}</td>
+                    <td>{{ r.operator|default:"—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">暂无报工记录,提交第一条采集吧。</div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    // 数量步进器:+/- 调整合格/不良数
+    document.querySelectorAll('.stepper button').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var input = document.getElementById(btn.dataset.target);
+            if (!input) return;
+            var v = parseInt(input.value || '0', 10) || 0;
+            v += btn.classList.contains('plus') ? 1 : -1;
+            if (v < 0) v = 0;
+            input.value = v;
+        });
+    });
+    // 首次进入自动聚焦合格数,便于连续录入
+    var okField = document.getElementById('id_qty_ok');
+    if (okField) { okField.focus(); okField.select(); }
+</script>
+{% endblock %}

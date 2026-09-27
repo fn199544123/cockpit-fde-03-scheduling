@@ -1,0 +1,47 @@
+{% extends 'board/base.html' %}
+{% block title %}{{ label }}台账 · 生产排产甘特看板{% endblock %}
+{% block nav_ledger %}active{% endblock %}
+
+{% block content %}
+<div class="crumbs">
+    <a href="{% url 'board:ledger_home' %}">基础台账</a> / {{ label }}
+</div>
+
+<div class="page-head">
+    <h2>{{ icon }} {{ label }}台账</h2>
+    <span class="count">共 {{ total }} 条</span>
+    <div class="spacer"></div>
+    <form class="search" method="get">
+        <input type="text" name="q" value="{{ q }}" placeholder="搜索{{ label }}…">
+        <button class="btn" type="submit">搜索</button>
+        {% if q %}<a class="btn btn-ghost" href="{% url 'board:ledger_list' entity %}">清除</a>{% endif %}
+    </form>
+    <a class="btn btn-primary" href="{% url 'board:ledger_new' entity %}">＋ 新增{{ label }}</a>
+</div>
+
+{% if rows %}
+<table>
+    <thead>
+        <tr>
+            {% for h in headers %}<th>{{ h }}</th>{% endfor %}
+            <th style="text-align:right;">操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in rows %}
+        <tr>
+            {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+            <td class="actions">
+                <a class="btn btn-sm btn-ghost" href="{% url 'board:ledger_edit' entity row.pk %}">编辑</a>
+                <a class="btn btn-sm btn-danger" href="{% url 'board:ledger_delete' entity row.pk %}">删除</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty">
+    {% if q %}没有匹配「{{ q }}」的{{ label }}。{% else %}暂无{{ label }}数据,点右上角「新增{{ label }}」创建第一条。{% endif %}
+</div>
+{% endif %}
+{% endblock %}

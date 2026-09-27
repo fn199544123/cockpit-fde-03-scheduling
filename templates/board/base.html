@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}生产排产甘特看板{% endblock %}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0e1a;
+            color: #e6edf3;
+            font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+            min-height: 100vh;
+        }
+        a { color: inherit; text-decoration: none; }
+        header {
+            padding: 18px 32px;
+            background: linear-gradient(90deg, #0d1b2a, #12263a);
+            border-bottom: 1px solid #1f3a52;
+            display: flex; align-items: center; gap: 28px; flex-wrap: wrap;
+        }
+        header h1 { font-size: 22px; color: #4fc3f7; letter-spacing: 2px; }
+        nav { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+        nav a {
+            padding: 7px 16px; border-radius: 8px; font-size: 14px;
+            color: #9db4cc; border: 1px solid transparent; transition: .15s;
+        }
+        nav a:hover { background: #16233a; color: #e6edf3; }
+        nav a.active { background: #143050; color: #4fc3f7; border-color: #1f5a86; }
+        nav a .nbadge {
+            display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 6px;
+            border-radius: 10px; font-size: 11px; line-height: 18px; text-align: center;
+            font-weight: 700; color: #fff; vertical-align: 1px;
+        }
+        nav a .nbadge.danger { background: #d0323f; box-shadow: 0 0 0 0 #ff5a6a99; animation: nbpulse 1.5s infinite; }
+        nav a .nbadge.warning { background: #d1791f; }
+        @keyframes nbpulse { 0% { box-shadow: 0 0 0 0 #ff5a6a99; } 70% { box-shadow: 0 0 0 7px #ff5a6a00; } 100% { box-shadow: 0 0 0 0 #ff5a6a00; } }
+        main { padding: 26px 32px 40px; max-width: 1400px; margin: 0 auto; }
+
+        .crumbs { color: #61728a; font-size: 13px; margin-bottom: 18px; }
+        .crumbs a:hover { color: #9ecbff; }
+
+        .page-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+        .page-head h2 { font-size: 20px; color: #9ecbff; }
+        .page-head .count { color: #61728a; font-size: 14px; }
+        .spacer { margin-left: auto; }
+
+        .btn {
+            display: inline-block; padding: 8px 18px; border-radius: 8px;
+            font-size: 14px; cursor: pointer; border: 1px solid #1f5a86;
+            background: #143050; color: #4fc3f7; transition: .15s;
+        }
+        .btn:hover { background: #1a3f6a; }
+        .btn-primary { background: #1565c0; border-color: #1976d2; color: #fff; }
+        .btn-primary:hover { background: #1976d2; }
+        .btn-ghost { background: transparent; border-color: #2a3f57; color: #9db4cc; }
+        .btn-ghost:hover { background: #16233a; color: #e6edf3; }
+        .btn-danger { background: #4a1220; border-color: #7a2233; color: #ff8a9c; }
+        .btn-danger:hover { background: #641828; }
+        .btn-sm { padding: 5px 12px; font-size: 13px; }
+
+        .search { display: flex; gap: 8px; }
+        .search input {
+            background: #0e1626; border: 1px solid #1f3a52; color: #e6edf3;
+            padding: 8px 14px; border-radius: 8px; font-size: 14px; width: 220px;
+        }
+        .search input:focus { outline: none; border-color: #1f5a86; }
+
+        table { width: 100%; border-collapse: collapse; background: #111a2b;
+            border: 1px solid #1f3a52; border-radius: 10px; overflow: hidden; }
+        thead th {
+            text-align: left; padding: 13px 16px; font-size: 13px; letter-spacing: 1px;
+            color: #7a8ba0; background: #0e1728; border-bottom: 1px solid #1f3a52; font-weight: 600;
+        }
+        tbody td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid #16233a; }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover { background: #14203450; }
+        td.actions { white-space: nowrap; text-align: right; }
+        td.actions a { margin-left: 8px; }
+        .empty { color: #556; padding: 40px; text-align: center; font-size: 15px; }
+
+        /* 卡片(台账首页) */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
+        .entity-card {
+            background: #111a2b; border: 1px solid #1f3a52; border-radius: 12px;
+            padding: 26px; transition: .18s; display: block;
+        }
+        .entity-card:hover { border-color: #1f5a86; transform: translateY(-2px); background: #13203a; }
+        .entity-card .ico { font-size: 34px; }
+        .entity-card .nm { font-size: 18px; margin-top: 12px; color: #e6edf3; }
+        .entity-card .cnt { font-size: 32px; color: #4fc3f7; font-weight: 700; margin-top: 8px; }
+        .entity-card .cnt small { font-size: 14px; color: #61728a; font-weight: 400; }
+
+        /* 表单 */
+        form.model-form { background: #111a2b; border: 1px solid #1f3a52; border-radius: 12px;
+            padding: 28px 32px; max-width: 640px; }
+        .field { margin-bottom: 20px; }
+        .field label { display: block; color: #9db4cc; font-size: 14px; margin-bottom: 7px; }
+        .field-input {
+            width: 100%; background: #0e1626; border: 1px solid #1f3a52; color: #e6edf3;
+            padding: 10px 14px; border-radius: 8px; font-size: 14px;
+        }
+        .field-input:focus { outline: none; border-color: #1f5a86; }
+        .field-check { width: 18px; height: 18px; vertical-align: middle; accent-color: #1976d2; }
+        .field .help { color: #61728a; font-size: 12px; margin-top: 5px; }
+        .field .errs { color: #ff8a9c; font-size: 13px; margin-top: 6px; }
+        .form-actions { display: flex; gap: 12px; margin-top: 8px; }
+
+        /* 消息 */
+        .msgs { margin-bottom: 18px; }
+        .msg { padding: 11px 18px; border-radius: 8px; font-size: 14px; margin-bottom: 8px; }
+        .msg.success { background: #10331f; border: 1px solid #1f7a44; color: #7ee2a8; }
+        .msg.error { background: #3a1420; border: 1px solid #7a2233; color: #ff8a9c; }
+        .msg.info, .msg.warning { background: #143050; border: 1px solid #1f5a86; color: #9ecbff; }
+
+        .confirm-box { background: #111a2b; border: 1px solid #7a2233; border-radius: 12px;
+            padding: 30px; max-width: 560px; }
+        .confirm-box h3 { color: #ff8a9c; margin-bottom: 14px; }
+        .confirm-box p { color: #b6c4d6; line-height: 1.7; margin-bottom: 22px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>⚙ 生产排产甘特看板</h1>
+        <nav>
+            <a href="{% url 'board:board' %}" class="{% block nav_board %}{% endblock %}">大屏看板</a>
+            <a href="{% url 'board:schedule' %}" class="{% block nav_schedule %}{% endblock %}">智能排产</a>
+            <a href="{% url 'board:utilization' %}" class="{% block nav_utilization %}{% endblock %}">负载分析</a>
+            <a href="{% url 'board:alerts' %}" class="{% block nav_alerts %}{% endblock %}">交期预警{% if risk_badge.danger %}<span class="nbadge danger">{{ risk_badge.danger }}</span>{% elif risk_badge.warning %}<span class="nbadge warning">{{ risk_badge.warning }}</span>{% endif %}</a>
+            <a href="{% url 'board:collect' %}" class="{% block nav_collect %}{% endblock %}">数据采集</a>
+            <a href="{% url 'board:ledger_home' %}" class="{% block nav_ledger %}{% endblock %}">基础台账</a>
+            <a href="/admin/">后台</a>
+        </nav>
+    </header>
+    <main>
+        {% if messages %}
+        <div class="msgs">
+            {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
+        </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

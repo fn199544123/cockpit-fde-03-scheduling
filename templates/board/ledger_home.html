@@ -1,0 +1,20 @@
+{% extends 'board/base.html' %}
+{% block title %}基础台账 · 生产排产甘特看板{% endblock %}
+{% block nav_ledger %}active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <h2>基础台账管理</h2>
+    <span class="count">主数据维护 · 列表 / 新增 / 编辑</span>
+</div>
+
+<div class="grid">
+    {% for it in items %}
+    <a class="entity-card" href="{% url 'board:ledger_list' it.entity %}">
+        <div class="ico">{{ it.icon }}</div>
+        <div class="nm">{{ it.label }}</div>
+        <div class="cnt">{{ it.count }} <small>条</small></div>
+    </a>
+    {% endfor %}
+</div>
+{% endblock %}

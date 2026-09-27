@@ -1,0 +1,86 @@
+{% extends 'board/base.html' %}
+{% block title %}交期风险预警 · 生产排产甘特看板{% endblock %}
+{% block nav_alerts %}active{% endblock %}
+
+{% block content %}
+<style>
+    .a-head { display:flex; align-items:center; gap:16px; margin-bottom:22px; flex-wrap:wrap; }
+    .a-head h2 { font-size:20px; color:#9ecbff; }
+    .a-head .sub { color:#61728a; font-size:13px; }
+
+    .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:16px; margin-bottom:26px; }
+    .kpi { background:#111a2b; border:1px solid #1f3a52; border-radius:12px; padding:20px 22px; }
+    .kpi .n { font-size:34px; font-weight:800; line-height:1; }
+    .kpi .l { font-size:13px; color:#7a8ba0; margin-top:10px; }
+    .kpi.overdue { border-color:#7a2233; } .kpi.overdue .n { color:#ff5a6a; }
+    .kpi.warning .n { color:#f0912f; } .kpi.watch .n { color:#4fc3f7; }
+    .kpi.abnormal .n { color:#e0a13c; } .kpi.ontime .n { color:#5fd39a; }
+
+    .g-section { margin-bottom:26px; }
+    .g-title { display:flex; align-items:center; gap:10px; font-size:16px; margin-bottom:12px; }
+    .g-title .dot { width:12px; height:12px; border-radius:3px; }
+    .g-title .cnt { color:#61728a; font-size:13px; }
+
+    table.risk { width:100%; border-collapse:collapse; background:#111a2b;
+        border:1px solid #1f3a52; border-radius:10px; overflow:hidden; }
+    table.risk thead th { text-align:left; padding:12px 16px; font-size:12px; letter-spacing:1px;
+        color:#7a8ba0; background:#0e1728; border-bottom:1px solid #1f3a52; }
+    table.risk tbody td { padding:12px 16px; font-size:14px; border-bottom:1px solid #16233a; vertical-align:top; }
+    table.risk tbody tr:last-child td { border-bottom:none; }
+    table.risk tbody tr:hover { background:#14203450; }
+    .no { color:#4fc3f7; font-weight:600; }
+    .muted { color:#7a8ba0; }
+    .slack.neg { color:#ff8a9c; font-weight:600; } .slack.pos { color:#8ea0b5; }
+    .ok-box { background:#0e2418; border:1px solid #1f7a44; border-radius:12px; padding:40px;
+        text-align:center; color:#7ee2a8; font-size:16px; }
+    .actbtns a { margin-left:0; }
+</style>
+
+<div class="a-head">
+    <h2>🚨 交期风险预警</h2>
+    <span class="sub">排产结果对照交期 · 超标/异常自动分级 · 已核对 {{ risk_counts.considered }} 张未完成订单</span>
+    <div class="spacer"></div>
+    <a class="btn" href="{% url 'board:schedule' %}">去排产工作台 →</a>
+</div>
+
+<div class="kpis">
+    <div class="kpi overdue"><div class="n">{{ risk_counts.overdue }}</div><div class="l">⛔ 已逾期 / 预计超期</div></div>
+    <div class="kpi warning"><div class="n">{{ risk_counts.warning }}</div><div class="l">⚠ 临期紧张</div></div>
+    <div class="kpi watch"><div class="n">{{ risk_counts.watch }}</div><div class="l">👁 需关注</div></div>
+    <div class="kpi abnormal"><div class="n">{{ risk_counts.abnormal }}</div><div class="l">❗ 数据异常</div></div>
+    <div class="kpi ontime"><div class="n">{{ risk_counts.on_time }}</div><div class="l">✅ 交期可控</div></div>
+</div>
+
+{% if groups %}
+    {% for g in groups %}
+    <div class="g-section">
+        <div class="g-title">
+            <span class="dot" style="background:{{ g.meta.color }};"></span>
+            <b style="color:{{ g.meta.color }};">{{ g.meta.icon }} {{ g.meta.label }}</b>
+            <span class="cnt">{{ g.items|length }} 项</span>
+        </div>
+        <table class="risk">
+            <thead><tr>
+                <th style="width:130px;">订单号</th><th style="width:140px;">产品</th>
+                <th>预警原因</th><th style="width:110px;">产线</th>
+                <th style="width:100px;">交期</th><th style="width:130px;">富余 / 超期</th>
+            </tr></thead>
+            <tbody>
+                {% for a in g.items %}
+                <tr>
+                    <td class="no">{{ a.order.order_no }}</td>
+                    <td>{{ a.order.product }}<br><span class="muted" style="font-size:12px;">{{ a.order.customer|default:"—" }} · {{ a.order.get_status_display }}</span></td>
+                    <td class="muted">{{ a.reason }}</td>
+                    <td>{% if a.line_name %}{{ a.line_name }}{% else %}<span class="muted">未排</span>{% endif %}</td>
+                    <td><b>{{ a.order.due_date|date:"m-d" }}</b><br><span class="muted" style="font-size:12px;">{{ a.order.get_priority_display }}</span></td>
+                    <td class="slack {% if a.slack_hours != None and a.slack_hours < 0 %}neg{% else %}pos{% endif %}">{{ a.slack_text }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="ok-box">✅ 太棒了 —— 已核对 {{ risk_counts.considered }} 张未完成订单,排产结果全部满足交期,当前无任何交期风险。</div>
+{% endif %}
+{% endblock %}

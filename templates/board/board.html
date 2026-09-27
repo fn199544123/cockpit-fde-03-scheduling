@@ -1,0 +1,632 @@
+{% extends 'board/base.html' %}
+{% block title %}大屏看板 · 生产排产甘特看板{% endblock %}
+{% block nav_board %}active{% endblock %}
+
+{% block content %}
+<style>
+    /* ==================== 炫酷大屏(投屏/录屏)专用样式 ==================== */
+    .bscreen { --pad:20px; }
+    .bscreen .grid-tools { display:none; }
+
+    /* 顶部标题条 + 实时时钟 */
+    .db-topbar {
+        display:flex; align-items:center; gap:20px; flex-wrap:wrap;
+        padding:16px 24px; margin-bottom:20px; border-radius:14px;
+        background:linear-gradient(100deg,#0c1a2e 0%,#101f38 55%,#0c1a2e 100%);
+        border:1px solid #1f3a52; position:relative; overflow:hidden;
+    }
+    .db-topbar::before {
+        content:''; position:absolute; inset:0;
+        background:radial-gradient(600px 120px at 12% -20%, #1f5a8633, transparent 70%);
+        pointer-events:none;
+    }
+    .db-topbar .tt { font-size:22px; font-weight:800; letter-spacing:2px; color:#eaf3ff;
+        text-shadow:0 0 18px #4fc3f755; }
+    .db-topbar .tt .dot { color:#4fc3f7; margin-right:8px; }
+    .db-topbar .sub { color:#7fa0c0; font-size:13px; }
+    .db-topbar .live { margin-left:auto; display:flex; align-items:center; gap:18px; }
+    .db-topbar .clock { font-size:26px; font-weight:800; color:#7fe0ff; letter-spacing:2px;
+        font-variant-numeric:tabular-nums; text-shadow:0 0 14px #4fc3f766; }
+    .db-topbar .cdate { font-size:12px; color:#8fa8c2; text-align:right; }
+    .db-topbar .lamp { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:#8fb7d8; }
+    .db-topbar .lamp i { width:9px; height:9px; border-radius:50%; background:#5fd39a;
+        box-shadow:0 0 10px #5fd39a; animation:blink 1.4s infinite; }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+    /* KPI 卡片行 */
+    .kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:16px; margin-bottom:20px; }
+    .kpi {
+        position:relative; padding:18px 18px 16px; border-radius:14px; overflow:hidden;
+        background:linear-gradient(160deg,#101d33,#0c1626); border:1px solid #1f3a52;
+    }
+    .kpi::after { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--ac,#4fc3f7); }
+    .kpi .kl { font-size:13px; color:#8ba3bd; letter-spacing:1px; }
+    .kpi .kv { font-size:38px; font-weight:800; line-height:1.05; margin-top:8px;
+        color:var(--ac,#4fc3f7); font-variant-numeric:tabular-nums; text-shadow:0 0 16px var(--gl,transparent); }
+    .kpi .kv small { font-size:14px; color:#61728a; font-weight:500; margin-left:4px; }
+    .kpi .kf { font-size:12px; color:#7a8ba0; margin-top:6px; }
+    .kpi .kf b { color:#c6d6e8; }
+
+    /* 主体三栏 */
+    .db-main { display:grid; grid-template-columns:1.15fr 1fr 1fr; gap:18px; margin-bottom:20px; }
+    @media (max-width:1200px){ .db-main{grid-template-columns:1fr 1fr;} .kpi-row{grid-template-columns:repeat(3,1fr);} }
+
+    .panel { background:#0f1a2c; border:1px solid #1f3a52; border-radius:14px; padding:16px 18px; }
+    .panel > h3 { font-size:14px; color:#9ecbff; letter-spacing:1px; margin-bottom:14px;
+        display:flex; align-items:center; gap:8px; }
+    .panel > h3 .more { margin-left:auto; font-size:12px; color:#4fc3f7; font-weight:400; }
+
+    /* 交期风险横幅(缩) */
+    .rk-banner { display:flex; align-items:center; gap:14px; padding:14px 16px; border-radius:12px;
+        border:1px solid #1f3a52; background:#111a2b; margin-bottom:12px; }
+    .rk-banner.lv-overdue { border-color:#7a2233; background:linear-gradient(90deg,#2a0e16,#1a1420);
+        box-shadow:0 0 22px #ff5a6a22; animation:rbpulse 2s infinite; }
+    .rk-banner.lv-abnormal { border-color:#7a5a22; background:linear-gradient(90deg,#241c0e,#181a14); }
+    .rk-banner.lv-warning { border-color:#7a5222; background:linear-gradient(90deg,#22190e,#181a14); }
+    .rk-banner.lv-ok { border-color:#1f7a44; background:linear-gradient(90deg,#0e2418,#12261a); }
+    @keyframes rbpulse { 0%,100%{box-shadow:0 0 18px #ff5a6a1a;} 50%{box-shadow:0 0 30px #ff5a6a3a;} }
+    .rk-banner .ico { font-size:30px; }
+    .rk-banner .t { font-size:16px; font-weight:700; color:#f1f5fa; }
+    .rk-banner .s { font-size:12px; color:#9db4cc; margin-top:2px; }
+    .rk-mini { margin-left:auto; display:flex; gap:8px; text-align:center; }
+    .rk-mini div { min-width:52px; padding:6px 4px; border-radius:8px; background:#0d1626; border:1px solid #1f3a52; }
+    .rk-mini .n { font-size:20px; font-weight:800; line-height:1; }
+    .rk-mini .l { font-size:11px; color:#7a8ba0; margin-top:4px; }
+    .rk-mini .overdue .n{color:#ff5a6a;} .rk-mini .warning .n{color:#f0912f;}
+    .rk-mini .watch .n{color:#4fc3f7;} .rk-mini .ontime .n{color:#5fd39a;}
+
+    .rk-row { display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid #16233a; font-size:13px; }
+    .rk-row:last-child{border-bottom:none;}
+    .rk-row .lv { flex:0 0 74px; font-size:11px; font-weight:700; text-align:center; padding:3px 0; border-radius:6px; }
+    .lv-tag-overdue{background:#3a1420;color:#ff8a9c;} .lv-tag-abnormal{background:#33280e;color:#f0c368;}
+    .lv-tag-warning{background:#33240e;color:#f0b072;} .lv-tag-watch{background:#0e2440;color:#7fb2ff;}
+    .rk-row .no{color:#4fc3f7;font-weight:600;flex:0 0 96px;}
+    .rk-row .pd{color:#c9d6e5;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .rk-row .sl{color:#ff8a9c;font-weight:600;white-space:nowrap;font-size:12px;}
+    .rk-row .sl.pos{color:#7a8ba0;}
+
+    /* 产线负荷条 */
+    .line-item { margin-bottom:14px; }
+    .line-item:last-child{margin-bottom:0;}
+    .line-item .hd { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:13px; }
+    .line-item .hd .cd { color:#4fc3f7; font-weight:700; }
+    .line-item .hd .nm { color:#dbe6f2; }
+    .line-item .hd .off { color:#61728a; font-size:11px; border:1px solid #2a3f57; padding:0 6px; border-radius:6px; }
+    .line-item .hd .r { margin-left:auto; color:#8ba3bd; font-size:12px; }
+    .line-item .hd .r b { color:#e6edf3; }
+    .bar { height:12px; border-radius:7px; background:#0c1626; border:1px solid #1a2c44; overflow:hidden; position:relative; }
+    .bar > i { display:block; height:100%; border-radius:6px; background:linear-gradient(90deg,#1565c0,#4fc3f7);
+        box-shadow:0 0 12px #4fc3f755; transition:width .6s; }
+    .bar.out > i { background:linear-gradient(90deg,#1f7a44,#5fd39a); box-shadow:0 0 12px #5fd39a55; }
+    .line-sub { display:flex; gap:14px; margin-top:5px; font-size:11px; color:#7a8ba0; }
+    .line-sub b { color:#c6d6e8; }
+    .line-sub .ng { color:#ff8a9c; }
+
+    /* 订单结构环形 */
+    .donut-wrap { display:flex; align-items:center; gap:20px; }
+    .donut { width:150px; height:150px; border-radius:50%; flex:0 0 150px; position:relative;
+        background:conic-gradient({{ donut_css }}); box-shadow:0 0 26px #0006 inset; }
+    .donut::after { content:''; position:absolute; inset:26px; border-radius:50%; background:#0f1a2c;
+        box-shadow:0 0 0 1px #1f3a52; }
+    .donut .ctr { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:2; }
+    .donut .ctr .n { font-size:30px; font-weight:800; color:#eaf3ff; line-height:1; }
+    .donut .ctr .l { font-size:11px; color:#7a8ba0; margin-top:3px; }
+    .legend { flex:1; }
+    .legend .li { display:flex; align-items:center; gap:8px; font-size:13px; padding:5px 0; }
+    .legend .li i { width:11px; height:11px; border-radius:3px; }
+    .legend .li .lb { color:#c9d6e5; }
+    .legend .li .vv { margin-left:auto; color:#e6edf3; font-weight:700; }
+    .legend .li .pc { color:#7a8ba0; font-size:11px; width:44px; text-align:right; }
+
+    /* 班次产出 */
+    .shift-item { margin-bottom:12px; }
+    .shift-item:last-child{margin-bottom:0;}
+    .shift-item .hd { display:flex; font-size:13px; margin-bottom:5px; }
+    .shift-item .hd .nm{color:#dbe6f2;} .shift-item .hd .vv{margin-left:auto;color:#8ba3bd;}
+    .shift-item .hd .vv b{color:#5fd39a;}
+
+    /* 实时报工滚动 */
+    .ticker { background:#0f1a2c; border:1px solid #1f3a52; border-radius:14px; padding:14px 18px; }
+    .ticker h3 { font-size:14px; color:#9ecbff; letter-spacing:1px; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+    .ticker h3 .more { margin-left:auto; font-size:12px; color:#4fc3f7; font-weight:400; }
+    .tk-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px 22px; }
+    @media (max-width:900px){ .tk-grid{grid-template-columns:1fr;} }
+    .tk-row { display:flex; align-items:center; gap:10px; font-size:13px; padding:7px 0; border-bottom:1px solid #16233a; }
+    .tk-row .tm { color:#61728a; font-size:12px; flex:0 0 78px; font-variant-numeric:tabular-nums; }
+    .tk-row .ln { color:#4fc3f7; font-weight:600; flex:0 0 56px; }
+    .tk-row .op { color:#c9d6e5; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .tk-row .qk { color:#5fd39a; font-weight:700; }
+    .tk-row .qn { color:#ff8a9c; }
+    .tk-row .sh { color:#7a8ba0; font-size:11px; border:1px solid #2a3f57; padding:0 6px; border-radius:6px; }
+
+    .db-foot { text-align:center; color:#4a5b70; font-size:12px; margin-top:18px; letter-spacing:1px; }
+
+    /* ==================== 手写 SVG 数据可视化 ==================== */
+    .db-viz { display:grid; grid-template-columns:1fr; gap:18px; margin-bottom:20px; }
+    .db-viz .viz-bottom { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    @media (max-width:1100px){ .db-viz .viz-bottom{grid-template-columns:1fr;} }
+    .chart { width:100%; }
+    .chart svg { display:block; width:100%; height:auto; overflow:visible; }
+    .chart .cx-axis text, .chart .cy-axis text { fill:#6f849c; font-size:11px; font-variant-numeric:tabular-nums; }
+    .chart .cgrid { stroke:#16273e; stroke-width:1; }
+    .chart .czero { stroke:#24405e; stroke-width:1; }
+    .chart .cx-lbl { fill:#8aa2bd; }
+    .chart-empty { color:#556; padding:38px; text-align:center; font-size:14px; }
+    .chart-tip {
+        position:fixed; z-index:50; pointer-events:none; opacity:0; transition:opacity .12s;
+        background:#0b1524; border:1px solid #24455f; border-radius:8px; padding:8px 11px;
+        font-size:12px; color:#dbe8f5; box-shadow:0 8px 24px #0008; white-space:nowrap;
+        transform:translate(-50%,-115%);
+    }
+    .chart-tip b { color:#7fe0ff; }
+    /* 环图图例 */
+    .donut-flex { display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+    .donut-flex .chart { flex:0 0 176px; width:176px; }
+    .donut-legend { flex:1; min-width:150px; }
+    .donut-legend .dl { display:flex; align-items:center; gap:9px; font-size:13px; padding:5px 0; }
+    .donut-legend .dl i { width:11px; height:11px; border-radius:3px; flex:0 0 11px; }
+    .donut-legend .dl .lb { color:#c9d6e5; }
+    .donut-legend .dl .vv { margin-left:auto; color:#e6edf3; font-weight:700; }
+    .donut-legend .dl .pc { color:#7a8ba0; font-size:11px; width:46px; text-align:right; }
+    .viz-lgd { display:flex; gap:16px; font-size:12px; color:#8aa2bd; margin-top:8px; align-items:center; flex-wrap:wrap; }
+    .viz-lgd .lg { display:inline-flex; align-items:center; gap:6px; }
+    .viz-lgd .lg i { width:22px; height:0; border-top-width:3px; border-top-style:solid; border-radius:3px; }
+    .viz-lgd .lg i.sq { width:11px; height:11px; border:none; border-radius:3px; }
+</style>
+
+<div class="bscreen">
+<!-- ===== 顶部标题条 + 实时时钟 ===== -->
+<div class="db-topbar">
+    <div>
+        <div class="tt"><span class="dot">⬤</span>生产排产 · 实时指挥中心</div>
+        <div class="sub">某企业演示大屏 · 数据高度脱敏 · 全量指标来自生产数据库</div>
+    </div>
+    <div class="live">
+        <span class="lamp"><i></i>数据实时 · 60s 自动刷新</span>
+        <div>
+            <div class="clock" id="db-clock">--:--:--</div>
+            <div class="cdate" id="db-date">{{ now|date:"Y-m-d D" }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== KPI 指标行 ===== -->
+<div class="kpi-row">
+    <a class="kpi" href="{% url 'board:ledger_list' 'order' %}" style="--ac:#4fc3f7;--gl:#4fc3f733;">
+        <div class="kl">订单总数</div>
+        <div class="kv">{{ order_count }}<small>张</small></div>
+        <div class="kf">待排 <b>{{ pending_count }}</b> · 在产 <b>{{ producing_count }}</b></div>
+    </a>
+    <a class="kpi" href="{% url 'board:schedule' %}" style="--ac:#7c8cff;--gl:#7c8cff33;">
+        <div class="kl">排产计划</div>
+        <div class="kv">{{ plan_count }}<small>条</small></div>
+        <div class="kf">智能排产 · 甘特图 →</div>
+    </a>
+    <a class="kpi" href="{% url 'board:ledger_list' 'line' %}" style="--ac:#5fd39a;--gl:#5fd39a33;">
+        <div class="kl">在产产线</div>
+        <div class="kv">{{ line_active }}<small>/ {{ line_count }} 条</small></div>
+        <div class="kf">工序 <b>{{ process_count }}</b> 道</div>
+    </a>
+    <a class="kpi" href="{% url 'board:collect' %}" style="--ac:#f0b072;--gl:#f0b07233;">
+        <div class="kl">累计产出</div>
+        <div class="kv">{{ total_out }}<small>件</small></div>
+        <div class="kf">合格 <b>{{ total_ok }}</b> · 不良 <b style="color:#ff8a9c;">{{ total_ng }}</b></div>
+    </a>
+    <div class="kpi" style="--ac:{% if yield_rate != None and yield_rate < 90 %}#f0912f{% else %}#5fd39a{% endif %};--gl:#5fd39a33;">
+        <div class="kl">综合良品率</div>
+        <div class="kv">{% if yield_rate != None %}{{ yield_rate }}<small>%</small>{% else %}—{% endif %}</div>
+        <div class="kf">报工 <b>{{ log_count }}</b> 条累计</div>
+    </div>
+    <a class="kpi" href="{% url 'board:collect' %}" style="--ac:#4fc3f7;--gl:#4fc3f733;">
+        <div class="kl">今日产出</div>
+        <div class="kv">{{ today_out }}<small>件</small></div>
+        <div class="kf">合格 <b>{{ today_ok }}</b> · 不良 <b style="color:#ff8a9c;">{{ today_ng }}</b></div>
+    </a>
+</div>
+
+<!-- ===== 主体三栏 ===== -->
+<div class="db-main">
+    <!-- 左:交期风险预警 -->
+    <div class="panel">
+        <h3>⚠ 交期风险预警<a class="more" href="{% url 'board:alerts' %}">查看全部 {{ risk_counts.total }} 项 →</a></h3>
+        {% with lv=risk.banner_level c=risk_counts %}
+        <div class="rk-banner lv-{{ lv }}">
+            <div class="ico">{% if lv == 'overdue' %}⛔{% elif lv == 'abnormal' %}❗{% elif lv == 'warning' %}⚠{% else %}✅{% endif %}</div>
+            <div>
+                {% if lv == 'ok' %}
+                    <div class="t">交期全部可控</div>
+                    <div class="s">已核对 {{ c.considered }} 张未完成订单,均满足交期。</div>
+                {% else %}
+                    <div class="t">共 {{ c.total }} 项待处理</div>
+                    <div class="s">已对照 {{ c.considered }} 张未完成订单排产结果与交期。</div>
+                {% endif %}
+            </div>
+            <div class="rk-mini">
+                <div class="overdue"><div class="n">{{ c.overdue }}</div><div class="l">已逾期</div></div>
+                <div class="warning"><div class="n">{{ c.warning }}</div><div class="l">临期</div></div>
+                <div class="watch"><div class="n">{{ c.watch }}</div><div class="l">关注</div></div>
+                <div class="ontime"><div class="n">{{ c.on_time }}</div><div class="l">可按期</div></div>
+            </div>
+        </div>
+        {% endwith %}
+        {% if risk_top %}
+            {% for a in risk_top %}
+            <div class="rk-row">
+                <span class="lv lv-tag-{{ a.level }}">{{ a.meta.icon }} {{ a.meta.label }}</span>
+                <span class="no">{{ a.order.order_no }}</span>
+                <span class="pd">{{ a.order.product }}{% if a.line_name %} · {{ a.line_name }}{% endif %}</span>
+                <span class="sl {% if a.slack_hours != None and a.slack_hours >= 0 %}pos{% endif %}">{{ a.slack_text }}</span>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty" style="padding:24px;">🎉 暂无预警,排产结果均满足交期。</div>
+        {% endif %}
+    </div>
+
+    <!-- 中:产线负荷 -->
+    <div class="panel">
+        <h3>🏭 产线负荷 · 累计产出<a class="more" href="{% url 'board:schedule' %}">排产 →</a></h3>
+        {% for r in line_rows %}
+        <div class="line-item">
+            <div class="hd">
+                <span class="cd">{{ r.line.code }}</span>
+                <span class="nm">{{ r.line.name }}</span>
+                {% if not r.is_active %}<span class="off">停用</span>{% endif %}
+                <span class="r">在排 <b>{{ r.plan_count }}</b> · 负荷 <b>{{ r.load_hours }}</b>h</span>
+            </div>
+            <div class="bar"><i style="width:{{ r.load_pct }}%;"></i></div>
+            <div class="line-sub">
+                <span>产出 <b>{{ r.out }}</b> 件</span>
+                <span class="ng">不良 {{ r.ng }}</span>
+                <span>良品率 <b>{% if r.yield != None %}{{ r.yield }}%{% else %}—{% endif %}</b></span>
+                <span style="margin-left:auto;">日产能 {{ r.capacity }} 件</span>
+            </div>
+        </div>
+        {% empty %}
+        <div class="empty" style="padding:24px;">暂无产线数据。</div>
+        {% endfor %}
+    </div>
+
+    <!-- 右:订单结构 + 班次产出 -->
+    <div class="panel">
+        <h3>📦 订单结构<a class="more" href="{% url 'board:ledger_list' 'order' %}">明细 →</a></h3>
+        <div class="donut-wrap">
+            <div class="donut">
+                <div class="ctr"><div class="n">{{ order_count }}</div><div class="l">订单总数</div></div>
+            </div>
+            <div class="legend">
+                {% for s in status_rows %}
+                <div class="li">
+                    <i style="background:{{ s.color }};"></i>
+                    <span class="lb">{{ s.label }}</span>
+                    <span class="vv">{{ s.n }}</span>
+                    <span class="pc">{{ s.pct }}%</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <h3 style="margin-top:20px;">🕐 班次产出对比</h3>
+        {% for s in shift_rows %}
+        <div class="shift-item">
+            <div class="hd"><span class="nm">{{ s.label }}</span>
+                <span class="vv">合格 <b>{{ s.ok }}</b> · 不良 {{ s.ng }} · 计 {{ s.total }} 件</span></div>
+            <div class="bar out"><i style="width:{{ s.pct }}%;"></i></div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- ===== 手写 SVG 数据可视化 ===== -->
+<div class="db-viz">
+    <div class="panel">
+        <h3>📈 产出趋势 · 近 14 天<span class="more">合格/不良逐日 + 良品率</span></h3>
+        <div id="viz-trend" class="chart"></div>
+        <div class="viz-lgd">
+            <span class="lg"><i class="sq" style="background:#4fc3f7;"></i>合格</span>
+            <span class="lg"><i class="sq" style="background:#ff8a9c;"></i>不良</span>
+            <span class="lg"><i style="border-top-color:#5fd39a;"></i>良品率(右轴)</span>
+        </div>
+    </div>
+    <div class="viz-bottom">
+        <div class="panel">
+            <h3>🍩 产线产出结构占比<a class="more" href="{% url 'board:ledger_list' 'line' %}">明细 →</a></h3>
+            <div class="donut-flex">
+                <div id="viz-donut" class="chart"></div>
+                <div id="viz-donut-legend" class="donut-legend"></div>
+            </div>
+        </div>
+        <div class="panel">
+            <h3>📊 班次产出对比<a class="more" href="{% url 'board:collect' %}">采集 →</a></h3>
+            <div id="viz-bars" class="chart"></div>
+            <div class="viz-lgd">
+                <span class="lg"><i class="sq" style="background:#4fc3f7;"></i>合格数</span>
+                <span class="lg"><i class="sq" style="background:#ff8a9c;"></i>不良数</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ viz_trend|json_script:"viz-trend-data" }}
+{{ viz_donut|json_script:"viz-donut-data" }}
+{{ viz_bars|json_script:"viz-bars-data" }}
+
+<!-- ===== 实时报工滚动 ===== -->
+<div class="ticker">
+    <h3>📡 实时报工流<a class="more" href="{% url 'board:collect' %}">数据采集 →</a></h3>
+    {% if recent_logs %}
+    <div class="tk-grid">
+        {% for lg in recent_logs %}
+        <div class="tk-row">
+            <span class="tm">{{ lg.logged_at|date:"m-d H:i" }}</span>
+            <span class="ln">{{ lg.line.code }}</span>
+            <span class="op">{{ lg.line.name }}{% if lg.process %} · {{ lg.process.name }}{% endif %}{% if lg.operator %} · {{ lg.operator }}{% endif %}</span>
+            <span class="sh">{{ lg.get_shift_display }}</span>
+            <span>合格 <span class="qk">{{ lg.qty_ok }}</span>{% if lg.qty_ng %} · 不良 <span class="qn">{{ lg.qty_ng }}</span>{% endif %}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty" style="padding:24px;">暂无报工记录 —— 到「数据采集」录入第一条。</div>
+    {% endif %}
+</div>
+
+<div class="db-foot">⚙ 生产排产甘特看板 · 演示大屏 · 端口 18803 · 所有数据取自实时数据库</div>
+</div>
+
+<script>
+    // 实时时钟(本地时间),纯前端,不影响后端数据。
+    (function () {
+        var el = document.getElementById('db-clock');
+        function tick() {
+            var d = new Date();
+            function p(n){ return (n < 10 ? '0' : '') + n; }
+            el.textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+        }
+        tick(); setInterval(tick, 1000);
+    })();
+    // ==================== 手写 SVG 图表(零依赖,不引 CDN)====================
+    (function () {
+        var SVGNS = 'http://www.w3.org/2000/svg';
+        function el(name, attrs, parent) {
+            var n = document.createElementNS(SVGNS, name);
+            if (attrs) for (var k in attrs) n.setAttribute(k, attrs[k]);
+            if (parent) parent.appendChild(n);
+            return n;
+        }
+        function readJSON(id) {
+            var node = document.getElementById(id);
+            if (!node) return null;
+            try { return JSON.parse(node.textContent); } catch (e) { return null; }
+        }
+        function empty(host, msg) {
+            host.innerHTML = '<div class="chart-empty">' + msg + '</div>';
+        }
+        // “尼斯取整”上界,让 Y 轴刻度好看
+        function niceMax(v) {
+            if (v <= 0) return 5;
+            var pow = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+            var f = v / pow;
+            var nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+            return nf * pow;
+        }
+        // 共用悬浮提示
+        var tip = document.createElement('div');
+        tip.className = 'chart-tip';
+        document.body.appendChild(tip);
+        function showTip(html, x, y) {
+            tip.innerHTML = html; tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.style.opacity = 1;
+        }
+        function hideTip() { tip.style.opacity = 0; }
+
+        // -------- 1) 趋势曲线:合格/不良日产出面积线 + 良品率折线(右轴) --------
+        function drawTrend(host, data) {
+            if (!data || !data.length) { empty(host, '暂无产出记录 —— 到「数据采集」录入第一条。'); return; }
+            var hasAny = data.some(function (d) { return d.out > 0; });
+            if (!hasAny) { empty(host, '近 14 天暂无产出。'); return; }
+            var W = 760, H = 300, mL = 44, mR = 46, mT = 16, mB = 34;
+            var iw = W - mL - mR, ih = H - mT - mB;
+            var n = data.length;
+            var ymax = niceMax(Math.max.apply(null, data.map(function (d) { return d.out; })));
+            var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'none' });
+            var defs = el('defs', null, svg);
+            var grad = el('linearGradient', { id: 'trendFill', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+            el('stop', { offset: '0%', 'stop-color': '#4fc3f7', 'stop-opacity': '.42' }, grad);
+            el('stop', { offset: '100%', 'stop-color': '#4fc3f7', 'stop-opacity': '0' }, grad);
+
+            var xAt = function (i) { return mL + (n === 1 ? iw / 2 : iw * i / (n - 1)); };
+            var yAt = function (v) { return mT + ih - ih * v / ymax; };
+            var yRate = function (r) { return mT + ih - ih * (r / 100); };
+
+            // 网格 + 左轴刻度(产出)
+            var gAxis = el('g', { class: 'cy-axis' }, svg);
+            var steps = 4;
+            for (var s = 0; s <= steps; s++) {
+                var val = ymax * s / steps, yy = yAt(val);
+                el('line', { class: s === 0 ? 'czero' : 'cgrid', x1: mL, y1: yy, x2: mL + iw, y2: yy }, gAxis);
+                var t = el('text', { x: mL - 8, y: yy + 4, 'text-anchor': 'end' }, gAxis);
+                t.textContent = Math.round(val);
+            }
+            // 右轴刻度(良品率 %)
+            var gR = el('g', { class: 'cy-axis' }, svg);
+            [0, 50, 100].forEach(function (r) {
+                var yy = yRate(r);
+                var t = el('text', { x: mL + iw + 8, y: yy + 4, 'text-anchor': 'start', fill: '#5fd39a' }, gR);
+                t.textContent = r + '%';
+            });
+
+            // 面积:合格数(堆在最底),用总产出线作为面积顶
+            var areaPts = data.map(function (d, i) { return xAt(i) + ',' + yAt(d.out); });
+            var areaD = 'M' + mL + ',' + yAt(0) + ' L' + areaPts.join(' L') + ' L' + xAt(n - 1) + ',' + yAt(0) + ' Z';
+            el('path', { d: areaD, fill: 'url(#trendFill)', stroke: 'none' }, svg);
+            // 总产出折线
+            el('polyline', {
+                points: data.map(function (d, i) { return xAt(i) + ',' + yAt(d.out); }).join(' '),
+                fill: 'none', stroke: '#4fc3f7', 'stroke-width': 2.4,
+                'stroke-linejoin': 'round', 'stroke-linecap': 'round'
+            }, svg);
+            // 不良折线(细)
+            el('polyline', {
+                points: data.map(function (d, i) { return xAt(i) + ',' + yAt(d.ng); }).join(' '),
+                fill: 'none', stroke: '#ff8a9c', 'stroke-width': 1.6, 'stroke-dasharray': '4 3',
+                'stroke-linejoin': 'round'
+            }, svg);
+            // 良品率折线(右轴,只连有产出的点)
+            var rateSeg = [];
+            data.forEach(function (d, i) {
+                if (d.yield === null || d.yield === undefined) { rateSeg.push(null); }
+                else { rateSeg.push(xAt(i) + ',' + yRate(d.yield)); }
+            });
+            // 分段(遇 null 断开)
+            var run = [];
+            rateSeg.forEach(function (p) {
+                if (p === null) { if (run.length > 1) el('polyline', { points: run.join(' '), fill: 'none', stroke: '#5fd39a', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg); run = []; }
+                else run.push(p);
+            });
+            if (run.length > 1) el('polyline', { points: run.join(' '), fill: 'none', stroke: '#5fd39a', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+
+            // 数据点 + X 轴标签 + 悬浮热区
+            var gx = el('g', { class: 'cx-axis' }, svg);
+            data.forEach(function (d, i) {
+                var x = xAt(i);
+                if (d.out > 0) el('circle', { cx: x, cy: yAt(d.out), r: 3, fill: '#0a0e1a', stroke: '#4fc3f7', 'stroke-width': 2 }, svg);
+                if (d.yield !== null && d.yield !== undefined) el('circle', { cx: x, cy: yRate(d.yield), r: 2.4, fill: '#5fd39a' }, svg);
+                // X 标签:密时隔一个显示
+                if (n <= 8 || i % 2 === 0 || i === n - 1) {
+                    var t = el('text', { x: x, y: H - 10, 'text-anchor': 'middle', class: 'cx-lbl' }, gx);
+                    t.textContent = d.label;
+                }
+                // 透明热区
+                var bw = iw / n;
+                var hit = el('rect', { x: x - bw / 2, y: mT, width: bw, height: ih, fill: 'transparent' }, svg);
+                hit.style.cursor = 'default';
+                (function (dd) {
+                    hit.addEventListener('mousemove', function (ev) {
+                        showTip('<b>' + dd.label + '</b> · 产出 <b>' + dd.out + '</b> 件<br>合格 ' + dd.ok +
+                            ' · 不良 ' + dd.ng + ' · 良品率 ' + (dd.yield === null ? '—' : dd.yield + '%'),
+                            ev.clientX, ev.clientY);
+                    });
+                    hit.addEventListener('mouseleave', hideTip);
+                })(d);
+            });
+            host.innerHTML = ''; host.appendChild(svg);
+        }
+
+        // -------- 2) 结构占比环图:各产线产出份额 --------
+        function polar(cx, cy, r, ang) {
+            var a = (ang - 90) * Math.PI / 180;
+            return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+        }
+        function arcPath(cx, cy, rO, rI, a0, a1) {
+            var large = (a1 - a0) > 180 ? 1 : 0;
+            var p0 = polar(cx, cy, rO, a0), p1 = polar(cx, cy, rO, a1);
+            var q1 = polar(cx, cy, rI, a1), q0 = polar(cx, cy, rI, a0);
+            return 'M' + p0[0] + ',' + p0[1] +
+                ' A' + rO + ',' + rO + ' 0 ' + large + ' 1 ' + p1[0] + ',' + p1[1] +
+                ' L' + q1[0] + ',' + q1[1] +
+                ' A' + rI + ',' + rI + ' 0 ' + large + ' 0 ' + q0[0] + ',' + q0[1] + ' Z';
+        }
+        function drawDonut(host, legendHost, data) {
+            var segs = (data && data.segments) || [];
+            var total = segs.reduce(function (a, s) { return a + s.value; }, 0);
+            if (!total) { empty(host, '暂无产出'); if (legendHost) legendHost.innerHTML = ''; return; }
+            var S = 176, cx = S / 2, cy = S / 2, rO = 80, rI = 50;
+            var svg = el('svg', { viewBox: '0 0 ' + S + ' ' + S });
+            var ang = 0, paths = [];
+            segs.forEach(function (s) {
+                var sweep = s.value / total * 360;
+                // 极小份额也留一条缝
+                var a1 = ang + sweep;
+                var p = el('path', {
+                    d: arcPath(cx, cy, rO, rI, ang + 0.6, Math.max(a1 - 0.6, ang + 0.6)),
+                    fill: s.color, stroke: '#0f1a2c', 'stroke-width': 1
+                }, svg);
+                p.style.cursor = 'default';
+                (function (ss) {
+                    p.addEventListener('mousemove', function (ev) {
+                        showTip('<b>' + ss.code + '</b> ' + ss.label + '<br>产出 <b>' + ss.value + '</b> 件 · ' +
+                            (ss.value / total * 100).toFixed(1) + '%', ev.clientX, ev.clientY);
+                    });
+                    p.addEventListener('mouseleave', hideTip);
+                    p.addEventListener('mouseenter', function () { p.setAttribute('opacity', '.82'); });
+                    p.addEventListener('mouseleave', function () { p.removeAttribute('opacity'); });
+                })(s);
+                ang = a1;
+            });
+            // 中心文字
+            var tv = el('text', { x: cx, y: cy - 2, 'text-anchor': 'middle', fill: '#eaf3ff', 'font-size': 26, 'font-weight': 800 }, svg);
+            tv.textContent = total;
+            var tl = el('text', { x: cx, y: cy + 16, 'text-anchor': 'middle', fill: '#7a8ba0', 'font-size': 11 }, svg);
+            tl.textContent = '累计产出(件)';
+            host.innerHTML = ''; host.appendChild(svg);
+            // 图例
+            if (legendHost) {
+                legendHost.innerHTML = '';
+                segs.forEach(function (s) {
+                    var d = document.createElement('div'); d.className = 'dl';
+                    d.innerHTML = '<i style="background:' + s.color + ';"></i>' +
+                        '<span class="lb">' + s.code + ' ' + s.label + '</span>' +
+                        '<span class="vv">' + s.value + '</span>' +
+                        '<span class="pc">' + (s.value / total * 100).toFixed(1) + '%</span>';
+                    legendHost.appendChild(d);
+                });
+            }
+        }
+
+        // -------- 3) 对比柱状:班次产出(合格/不良分组柱)--------
+        function drawBars(host, data) {
+            var groups = (data && data.groups) || [];
+            var maxV = 0;
+            groups.forEach(function (g) { maxV = Math.max(maxV, g.ok, g.ng); });
+            if (!maxV) { empty(host, '暂无班次产出'); return; }
+            var W = 380, H = 260, mL = 40, mR = 12, mT = 14, mB = 34;
+            var iw = W - mL - mR, ih = H - mT - mB;
+            var ymax = niceMax(maxV);
+            var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'none' });
+            var yAt = function (v) { return mT + ih - ih * v / ymax; };
+            // 网格 + 左轴
+            var gA = el('g', { class: 'cy-axis' }, svg);
+            for (var s = 0; s <= 4; s++) {
+                var val = ymax * s / 4, yy = yAt(val);
+                el('line', { class: s === 0 ? 'czero' : 'cgrid', x1: mL, y1: yy, x2: mL + iw, y2: yy }, gA);
+                var t = el('text', { x: mL - 8, y: yy + 4, 'text-anchor': 'end' }, gA);
+                t.textContent = Math.round(val);
+            }
+            var gN = groups.length, slot = iw / gN, bw = Math.min(30, slot / 3);
+            var gx = el('g', { class: 'cx-axis' }, svg);
+            groups.forEach(function (g, i) {
+                var cx = mL + slot * i + slot / 2;
+                var pairs = [{ v: g.ok, c: '#4fc3f7', lb: '合格' }, { v: g.ng, c: '#ff8a9c', lb: '不良' }];
+                pairs.forEach(function (p, k) {
+                    var bx = cx - bw - 3 + k * (bw + 6);
+                    var by = yAt(p.v), bh = mT + ih - by;
+                    var rect = el('rect', { x: bx, y: by, width: bw, height: Math.max(bh, p.v > 0 ? 1.5 : 0), rx: 3, fill: p.c }, svg);
+                    if (p.v > 0) rect.setAttribute('style', 'filter:drop-shadow(0 0 6px ' + p.c + '55)');
+                    rect.style.cursor = 'default';
+                    (function (gg, pp) {
+                        rect.addEventListener('mousemove', function (ev) {
+                            showTip('<b>' + gg.label + '</b> · ' + pp.lb + ' <b>' + pp.v + '</b> 件', ev.clientX, ev.clientY);
+                        });
+                        rect.addEventListener('mouseleave', hideTip);
+                    })(g, p);
+                    // 数值标注
+                    if (p.v > 0) {
+                        var vt = el('text', { x: bx + bw / 2, y: by - 4, 'text-anchor': 'middle', fill: p.c, 'font-size': 11, 'font-weight': 700 }, svg);
+                        vt.textContent = p.v;
+                    }
+                });
+                var lt = el('text', { x: cx, y: H - 10, 'text-anchor': 'middle', class: 'cx-lbl' }, gx);
+                lt.textContent = g.label;
+            });
+            host.innerHTML = ''; host.appendChild(svg);
+        }
+
+        drawTrend(document.getElementById('viz-trend'), readJSON('viz-trend-data'));
+        drawDonut(document.getElementById('viz-donut'), document.getElementById('viz-donut-legend'), readJSON('viz-donut-data'));
+        drawBars(document.getElementById('viz-bars'), readJSON('viz-bars-data'));
+    })();
+
+    // 60 秒自动刷新,保持大屏数据常新(投屏无人值守)。
+    setTimeout(function () { location.reload(); }, 60000);
+</script>
+{% endblock %}

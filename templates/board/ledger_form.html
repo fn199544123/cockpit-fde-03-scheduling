@@ -1,0 +1,33 @@
+{% extends 'board/base.html' %}
+{% block title %}{% if is_edit %}编辑{% else %}新增{% endif %}{{ label }} · 生产排产甘特看板{% endblock %}
+{% block nav_ledger %}active{% endblock %}
+
+{% block content %}
+<div class="crumbs">
+    <a href="{% url 'board:ledger_home' %}">基础台账</a> /
+    <a href="{% url 'board:ledger_list' entity %}">{{ label }}</a> /
+    {% if is_edit %}编辑{% else %}新增{% endif %}
+</div>
+
+<div class="page-head">
+    <h2>{{ icon }} {% if is_edit %}编辑{{ label }}{% else %}新增{{ label }}{% endif %}</h2>
+    {% if is_edit %}<span class="count">{{ obj }}</span>{% endif %}
+</div>
+
+<form class="model-form" method="post" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors }}</div>{% endif %}
+    {% for field in form %}
+    <div class="field">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}
+        {% if field.errors %}<div class="errs">{{ field.errors|striptags }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <a href="{% url 'board:ledger_list' entity %}" class="btn btn-ghost">取消</a>
+    </div>
+</form>
+{% endblock %}
